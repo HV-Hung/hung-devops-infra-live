@@ -1,0 +1,5 @@
+locals {
+  environment         = "qa"
+  location            = "eastus"
+  resource_group_name = "rg-hung-devops-qa"
+}

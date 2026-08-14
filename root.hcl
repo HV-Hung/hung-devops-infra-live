@@ -4,8 +4,8 @@
 # ---------------------------------------------------------------------------------------------------------------------
 
 locals {
-  # Automatically load environment-level variables from env.yaml
-  env_vars = yamldecode(file(find_in_parent_folders("env.yaml")))
+  # Automatically load environment-level variables from env.hcl
+  env_vars = read_terragrunt_config(find_in_parent_folders("env.hcl"))
   env      = local.env_vars.locals.environment
 }
 

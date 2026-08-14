@@ -34,8 +34,23 @@ SUBSCRIPTION_ID=$(az account show --query id -o tsv)
 
 echo "5. Assigning Contributor Role to the Identity for the Subscription..."
 # Note: In a production environment, scope this to specific Resource Groups rather than the whole Subscription.
-az role assignment create --assignee $IDENTITY_PRINCIPAL_ID \
-  --role "Contributor" --scope "/subscriptions/$SUBSCRIPTION_ID"
+# Azure AD propagation can take some time, so we retry the assignment if it fails
+MAX_RETRIES=10
+RETRY_COUNT=0
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+  if az role assignment create --assignee $IDENTITY_PRINCIPAL_ID --role "Contributor" --scope "/subscriptions/$SUBSCRIPTION_ID" &> /dev/null; then
+    echo "✅ Role assignment successful!"
+    break
+  fi
+  echo "⏳ Waiting 15 seconds for Managed Identity to propagate in Entra ID... ($((RETRY_COUNT + 1))/$MAX_RETRIES)"
+  sleep 15
+  RETRY_COUNT=$((RETRY_COUNT + 1))
+done
+
+if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+  echo "❌ Failed to assign Contributor role after multiple attempts. Please try manually later."
+  exit 1
+fi
 
 echo "6. Creating Federated Identity Credential for GitHub Actions (Main Branch)..."
 az identity federated-credential create --name "github-actions-main" \

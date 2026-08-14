@@ -65,25 +65,44 @@ fi
 
 echo "7. Creating Federated Identity Credentials for GitHub Actions..."
 
+echo "Fetching GitHub Organization and Repository IDs..."
+if command -v gh &> /dev/null; then
+  GITHUB_ORG_ID=$(gh api repos/$GITHUB_ORG/$GITHUB_REPO --jq '.owner.id')
+  GITHUB_REPO_ID=$(gh api repos/$GITHUB_ORG/$GITHUB_REPO --jq '.id')
+else
+  echo "⚠️ WARNING: GitHub CLI (gh) is not installed. Using curl to fetch IDs."
+  REPO_DATA=$(curl -s https://api.github.com/repos/$GITHUB_ORG/$GITHUB_REPO)
+  GITHUB_ORG_ID=$(echo $REPO_DATA | grep -E '"id"' -m 2 | tail -1 | tr -d ' ,a-zA-Z":')
+  GITHUB_REPO_ID=$(echo $REPO_DATA | grep -E '"id"' -m 1 | tr -d ' ,a-zA-Z":')
+fi
+
+if [ -z "$GITHUB_ORG_ID" ] || [ -z "$GITHUB_REPO_ID" ]; then
+  echo "❌ Failed to fetch GitHub Organization or Repository ID. Please check repository name and visibility."
+  exit 1
+fi
+
+echo "  Org ID: $GITHUB_ORG_ID"
+echo "  Repo ID: $GITHUB_REPO_ID"
+
 echo "  7a. Main branch (push/apply workflows)..."
 az identity federated-credential create --name "github-actions-main" \
   --identity-name $IDENTITY_NAME --resource-group $RG_NAME \
   --issuer "https://token.actions.githubusercontent.com" \
-  --subject "repo:$GITHUB_ORG/$GITHUB_REPO:ref:refs/heads/main" \
+  --subject "repo:$GITHUB_ORG@$GITHUB_ORG_ID/$GITHUB_REPO@$GITHUB_REPO_ID:ref:refs/heads/main" \
   --audiences "api://AzureADTokenExchange"
 
 echo "  7b. Pull requests (plan workflows)..."
 az identity federated-credential create --name "github-actions-pr" \
   --identity-name $IDENTITY_NAME --resource-group $RG_NAME \
   --issuer "https://token.actions.githubusercontent.com" \
-  --subject "repo:$GITHUB_ORG/$GITHUB_REPO:pull_request" \
+  --subject "repo:$GITHUB_ORG@$GITHUB_ORG_ID/$GITHUB_REPO@$GITHUB_REPO_ID:pull_request" \
   --audiences "api://AzureADTokenExchange"
 
 echo "  7c. Production environment (prod approval gate)..."
 az identity federated-credential create --name "github-actions-prod-env" \
   --identity-name $IDENTITY_NAME --resource-group $RG_NAME \
   --issuer "https://token.actions.githubusercontent.com" \
-  --subject "repo:$GITHUB_ORG/$GITHUB_REPO:environment:production" \
+  --subject "repo:$GITHUB_ORG@$GITHUB_ORG_ID/$GITHUB_REPO@$GITHUB_REPO_ID:environment:production" \
   --audiences "api://AzureADTokenExchange"
 
 TENANT_ID=$(az account show --query tenantId -o tsv)

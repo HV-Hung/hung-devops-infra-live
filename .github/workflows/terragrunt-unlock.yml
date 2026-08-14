@@ -1,0 +1,51 @@
+# ==============================================================================
+# UNLOCK STATE
+# Manual workflow to force-unlock a Terraform state that got stuck.
+# Use when a CI run was cancelled and left the state locked.
+# ==============================================================================
+
+name: "Unlock State"
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment'
+        required: true
+        type: choice
+        options: [dev, qa, prod]
+      path:
+        description: 'Terragrunt path relative to env (e.g., resource-group)'
+        required: true
+        type: string
+      lock_id:
+        description: 'Lock ID to unlock'
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  unlock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-terragrunt
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Force Unlock State
+        working-directory: ${{ inputs.environment }}/${{ inputs.path }}
+        run: terragrunt force-unlock -force ${{ inputs.lock_id }}
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_USE_OIDC: true

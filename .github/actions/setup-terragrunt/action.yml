@@ -1,0 +1,32 @@
+name: 'Setup Terragrunt'
+description: 'Install Terraform, Terragrunt, and verify versions'
+
+inputs:
+  terraform-version:
+    description: 'Terraform version to install'
+    required: false
+    default: '1.15.8'
+  terragrunt-version:
+    description: 'Terragrunt version to install'
+    required: false
+    default: '1.1.3'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ inputs.terraform-version }}
+        terraform_wrapper: false # Required for terragrunt compatibility
+
+    - name: Setup Terragrunt
+      uses: autero1/action-terragrunt@v3
+      with:
+        terragrunt-version: ${{ inputs.terragrunt-version }}
+
+    - name: Verify Versions
+      shell: bash
+      run: |
+        echo "Terraform: $(terraform version -json | jq -r '.terraform_version')"
+        echo "Terragrunt: $(terragrunt --version)"

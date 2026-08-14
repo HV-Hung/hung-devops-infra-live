@@ -1,0 +1,102 @@
+# ==============================================================================
+# PLAN: DEV ENVIRONMENT
+# Triggered on pull requests to main that change dev/, shared, or module files.
+# Detects changed paths, runs terragrunt plan for each, and posts PR comments.
+# ==============================================================================
+
+name: "Plan: Dev"
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'dev/**'
+      - '_envcommon/**'
+      - 'modules/**'
+      - 'root.hcl'
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      paths: ${{ steps.filter.outputs.changes }}
+      has_changes: ${{ steps.check.outputs.has_changes }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: '.github/filters/dev.yaml'
+      - id: check
+        run: |
+          CHANGES='${{ steps.filter.outputs.changes }}'
+          if [ "$CHANGES" = "[]" ]; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
+
+  plan:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        path: ${{ fromJson(needs.detect-changes.outputs.paths) }}
+      fail-fast: false
+      max-parallel: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-terragrunt
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Terragrunt Plan
+        id: plan
+        working-directory: dev/${{ matrix.path }}
+        run: |
+          set +e
+          terragrunt plan -no-color 2>&1 | tee plan_output.txt
+          PLAN_EXIT_CODE=${PIPESTATUS[0]}
+          echo "exit_code=$PLAN_EXIT_CODE" >> $GITHUB_OUTPUT
+          exit $PLAN_EXIT_CODE
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_USE_OIDC: true
+
+      - name: Comment Plan on PR
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('dev/${{ matrix.path }}/plan_output.txt', 'utf8');
+            const status = '${{ steps.plan.outcome }}' === 'success' ? '✅' : '❌';
+            const body = `### ${status} Plan: \`dev/${{ matrix.path }}\`
+
+            <details><summary>Show Plan Output</summary>
+
+            \`\`\`
+            ${plan.substring(0, 60000)}
+            \`\`\`
+
+            </details>`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });

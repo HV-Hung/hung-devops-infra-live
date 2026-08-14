@@ -1,0 +1,12 @@
+# =============================================================================
+# QA ENVIRONMENT: Path Filters for Change Detection
+# Order matters! Paths are executed top-to-bottom with max-parallel: 1.
+# List dependencies first (e.g., resource-group before network before aks).
+# =============================================================================
+
+resource-group:
+  - 'qa/resource-group/**'
+  - 'qa/env.hcl'
+  - '_envcommon/resource-group.hcl'
+  - 'modules/resource-group/**'
+  - 'root.hcl'

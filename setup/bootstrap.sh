@@ -32,14 +32,13 @@ IDENTITY_CLIENT_ID=$(az identity show --name $IDENTITY_NAME --resource-group $RG
 IDENTITY_PRINCIPAL_ID=$(az identity show --name $IDENTITY_NAME --resource-group $RG_NAME --query 'principalId' -o tsv)
 SUBSCRIPTION_ID=$(az account show --query id -o tsv)
 
-echo "5. Assigning Contributor Role to the Identity for the Subscription..."
-# Note: In a production environment, scope this to specific Resource Groups rather than the whole Subscription.
-# Azure AD propagation can take some time, so we retry the assignment if it fails
+echo "5. Assigning Owner Role to the Managed Identity for the Subscription..."
+# Owner role is required so Terraform can create Managed Identities AND assign Azure RBAC roles to them (e.g., AKS -> ACR pull)
 MAX_RETRIES=10
 RETRY_COUNT=0
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-  if az role assignment create --assignee $IDENTITY_PRINCIPAL_ID --role "Contributor" --scope "/subscriptions/$SUBSCRIPTION_ID" &> /dev/null; then
-    echo "✅ Role assignment successful!"
+  if az role assignment create --assignee $IDENTITY_PRINCIPAL_ID --role "Owner" --scope "/subscriptions/$SUBSCRIPTION_ID" &> /dev/null; then
+    echo "✅ Owner role assignment successful!"
     break
   fi
   echo "⏳ Waiting 15 seconds for Managed Identity to propagate in Entra ID... ($((RETRY_COUNT + 1))/$MAX_RETRIES)"
@@ -48,11 +47,23 @@ while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
 done
 
 if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-  echo "❌ Failed to assign Contributor role after multiple attempts. Please try manually later."
+  echo "❌ Failed to assign Owner role after multiple attempts. Please try manually later."
   exit 1
 fi
 
-echo "6. Creating Federated Identity Credential for GitHub Actions (Main Branch)..."
+echo "6. Assigning Storage Blob Data Contributor Role for State Data Plane Access..."
+# Required because 'use_oidc = true' requires Azure AD Data Plane access to read/write tfstate blobs
+STORAGE_ACCOUNT_ID=$(az storage account show --name $SA_NAME --resource-group $RG_NAME --query id -o tsv)
+az role assignment create --assignee $IDENTITY_PRINCIPAL_ID --role "Storage Blob Data Contributor" --scope "$STORAGE_ACCOUNT_ID"
+
+# Also assign Storage Blob Data Contributor to the currently logged-in Azure CLI user (for local terragrunt execution)
+CURRENT_USER_ID=$(az ad signed-in-user show --query id -o tsv 2>/dev/null || true)
+if [ -n "$CURRENT_USER_ID" ]; then
+  echo "Assigning Storage Blob Data Contributor to local signed-in user ($CURRENT_USER_ID)..."
+  az role assignment create --assignee $CURRENT_USER_ID --role "Storage Blob Data Contributor" --scope "$STORAGE_ACCOUNT_ID"
+fi
+
+echo "7. Creating Federated Identity Credential for GitHub Actions (Main Branch)..."
 az identity federated-credential create --name "github-actions-main" \
   --identity-name $IDENTITY_NAME --resource-group $RG_NAME \
   --issuer "https://token.actions.githubusercontent.com" \
@@ -61,7 +72,7 @@ az identity federated-credential create --name "github-actions-main" \
 
 TENANT_ID=$(az account show --query tenantId -o tsv)
 
-echo "7. Configuring GitHub Secrets for Actions OIDC..."
+echo "8. Configuring GitHub Secrets for Actions OIDC..."
 if command -v gh &> /dev/null; then
     echo "Pushing secrets to $GITHUB_ORG/$GITHUB_REPO..."
     gh secret set AZURE_CLIENT_ID --body "$IDENTITY_CLIENT_ID" --repo "$GITHUB_ORG/$GITHUB_REPO"

@@ -1,0 +1,74 @@
+# ==============================================================================
+# APPLY: QA ENVIRONMENT
+# Triggered on push to main (after PR merge) that changes qa/, shared, or
+# module files. Auto-applies in dependency order.
+# ==============================================================================
+
+name: "Apply: QA"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'qa/**'
+      - '_envcommon/**'
+      - 'modules/**'
+      - 'root.hcl'
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: terragrunt-apply-qa
+  cancel-in-progress: false
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      paths: ${{ steps.filter.outputs.changes }}
+      has_changes: ${{ steps.check.outputs.has_changes }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: '.github/filters/qa.yaml'
+      - id: check
+        run: |
+          CHANGES='${{ steps.filter.outputs.changes }}'
+          if [ "$CHANGES" = "[]" ]; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
+
+  apply:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        path: ${{ fromJson(needs.detect-changes.outputs.paths) }}
+      max-parallel: 1
+      fail-fast: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-terragrunt
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Terragrunt Apply
+        working-directory: qa/${{ matrix.path }}
+        run: terragrunt apply -auto-approve -no-color
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_USE_OIDC: true

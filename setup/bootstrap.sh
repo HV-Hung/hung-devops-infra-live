@@ -63,11 +63,27 @@ if [ -n "$CURRENT_USER_ID" ]; then
   az role assignment create --assignee $CURRENT_USER_ID --role "Storage Blob Data Contributor" --scope "$STORAGE_ACCOUNT_ID"
 fi
 
-echo "7. Creating Federated Identity Credential for GitHub Actions (Main Branch)..."
+echo "7. Creating Federated Identity Credentials for GitHub Actions..."
+
+echo "  7a. Main branch (push/apply workflows)..."
 az identity federated-credential create --name "github-actions-main" \
   --identity-name $IDENTITY_NAME --resource-group $RG_NAME \
   --issuer "https://token.actions.githubusercontent.com" \
   --subject "repo:$GITHUB_ORG/$GITHUB_REPO:ref:refs/heads/main" \
+  --audiences "api://AzureADTokenExchange"
+
+echo "  7b. Pull requests (plan workflows)..."
+az identity federated-credential create --name "github-actions-pr" \
+  --identity-name $IDENTITY_NAME --resource-group $RG_NAME \
+  --issuer "https://token.actions.githubusercontent.com" \
+  --subject "repo:$GITHUB_ORG/$GITHUB_REPO:pull_request" \
+  --audiences "api://AzureADTokenExchange"
+
+echo "  7c. Production environment (prod approval gate)..."
+az identity federated-credential create --name "github-actions-prod-env" \
+  --identity-name $IDENTITY_NAME --resource-group $RG_NAME \
+  --issuer "https://token.actions.githubusercontent.com" \
+  --subject "repo:$GITHUB_ORG/$GITHUB_REPO:environment:production" \
   --audiences "api://AzureADTokenExchange"
 
 TENANT_ID=$(az account show --query tenantId -o tsv)

@@ -1,0 +1,66 @@
+# ==============================================================================
+# MANUAL: PLAN/APPLY
+# Manual workflow dispatch to run terragrunt plan or apply on a specific
+# environment and path. Useful for debugging or targeted re-applies.
+# Prod applies require approval via the "production" GitHub Environment.
+# ==============================================================================
+
+name: "Manual: Plan/Apply"
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment'
+        required: true
+        type: choice
+        options: [dev, qa, prod]
+      path:
+        description: 'Terragrunt path relative to env (e.g., resource-group)'
+        required: true
+        type: string
+      action:
+        description: 'Action to perform'
+        required: true
+        type: choice
+        options: [plan, apply]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.action == 'apply' && inputs.environment == 'prod' && 'production' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-terragrunt
+
+      - name: Validate Path Exists
+        run: |
+          if [ ! -f "${{ inputs.environment }}/${{ inputs.path }}/terragrunt.hcl" ]; then
+            echo "❌ Path ${{ inputs.environment }}/${{ inputs.path }}/terragrunt.hcl not found"
+            exit 1
+          fi
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Terragrunt ${{ inputs.action }}
+        working-directory: ${{ inputs.environment }}/${{ inputs.path }}
+        run: |
+          if [ "${{ inputs.action }}" = "plan" ]; then
+            terragrunt plan -no-color
+          else
+            terragrunt apply -auto-approve -no-color
+          fi
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_USE_OIDC: true

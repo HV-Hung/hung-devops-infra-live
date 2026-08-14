@@ -9,5 +9,5 @@ Terragrunt and Terraform configurations for provisioning Microsoft Azure resourc
 
 ## 💻 Code Standards
 1. Always use the latest `azurerm` provider.
-2. Naming Conventions: Lowercase with hyphens (e.g., `rg-antigravity-dev-eus`).
+2. Naming Conventions: Lowercase with hyphens (e.g., `rg-hung-devops-dev-eus`).
 3. Ensure every module has comprehensive `outputs.tf`.

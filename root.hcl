@@ -33,7 +33,7 @@ remote_state {
     storage_account_name = "sthungdevopstfstate"
     container_name       = "tfstate"
     # This dynamically creates a state file path matching the folder structure (e.g., dev/network/terraform.tfstate)
-    key                  = "$${path_relative_to_include()}/terraform.tfstate"
+    key                  = "${path_relative_to_include()}/terraform.tfstate"
     use_oidc             = true
   }
 }
